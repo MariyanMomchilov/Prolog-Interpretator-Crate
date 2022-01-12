@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests;
 
-use std::boxed;
+use std::{fmt::{Formatter, Debug, Error}};
 
 use super::tokenizer::*;
 
-pub trait Clause {
+pub trait Clause: Debug {
     fn evaluate(&self) {}
     fn unify(&self) {}
 }
@@ -20,7 +20,7 @@ pub struct Fact {
 }
 
 pub struct Rule {
-    head: Fact,
+    head: Box<dyn Clause>,
     body: Vec<Box<dyn Clause>>,
 }
 
@@ -62,7 +62,15 @@ impl Parser {
     }
 
     fn parse_clause(&mut self) -> Result<Box<dyn Clause>, ParserError> {
-        todo!()
+        let variable_clause = self.parse_variable_clause();
+        if let Ok(v) = variable_clause {
+            return Ok(v);
+        }
+        if let Ok(r) = self.parse_rule_clause() {
+            return Ok(r);
+        }
+        let fact = self.parse_fact_clause()?;
+        Ok(fact)
     }
 
     fn parse_variable_clause(&mut self) -> Result<Box<dyn Clause>, ParserError> {
@@ -85,75 +93,56 @@ impl Parser {
         });
     }
 
-    fn parse_fact_clause(&mut self) -> Result<Box<dyn Clause>, ParserError> {
-        let constant = self.get_constant()?;
+    fn parse_rule_clause(&mut self) -> Result<Box<dyn Clause>, ParserError> {
+        let current_pos = self.pos;
+        let name = self.get_constant()?;
+        let head = self.parse_functor(name)?;
+        if let Err(e) = self.is_symbol(SpecialSymbol::Dots) {
+            self.pos = current_pos;
+            return Err(e);
+        }
+
+        self.is_symbol(SpecialSymbol::Minus)?;
+        
+        let mut body = Vec::new();
+        while let Err(_) = self.is_symbol(SpecialSymbol::Dot) {
+            let name = self.get_constant()?;
+            let body_functor = self.parse_functor(name)?;
+            body.push(body_functor);
+            self.is_symbol(SpecialSymbol::Comma);
+        }
+        Ok(Box::new(Rule{head, body}))
     }
 
-    // fn parse_clause(&mut self) -> Result<Box<dyn Clause>, ParserError> {
-    //     if let Ok(boxed_var) = self.parse_variable() {
-    //         return Ok(boxed_var);
-    //     }
+    fn parse_fact_clause(&mut self) -> Result<Box<dyn Clause>, ParserError> {
+        let constant = self.get_constant()?;
+        let functor = self.parse_functor(constant)?;
+        self.is_symbol(SpecialSymbol::Dot)?;
+        Ok(functor)
+    }
 
-    //     let token = self.next_token();
-    //     let constant_result = self.get_constant(&token);
-    //     if let Ok(c) = constant_result {
+    fn parse_functor(&mut self, name: String) -> Result<Box<dyn Clause>, ParserError> {
+        self.is_symbol(SpecialSymbol::LBrace)?;
+        let mut args = Vec::<Box<dyn Clause>>::new();
+        while let Err(_) = self.is_symbol(SpecialSymbol::RBrace) {
+            let arg = self.parse_arg()?;
+            args.push(arg);
+            self.is_symbol(SpecialSymbol::Comma);
+        }
+        Ok(Box::new(Fact{ name, args }))
+    }
 
-    //         let token = self.next_token();
-
-    //         if let Ok(()) = self.is_symbol(&token, SpecialSymbol::LBrace) {
-
-    //             let mut args =  Vec::<Box<dyn Clause>>::new();
-    //             let mut token = self.next_token();
-
-    //             while let Err(_) = self.is_symbol(&token, SpecialSymbol::RBrace) {
-    //                 self.advance_pos(-1);
-    //                 let arg = self.parse_clause()?;
-    //                 args.push(arg);
-    //                 token = self.next_token();
-    //                 if let Ok(()) = self.is_symbol(&token, SpecialSymbol::Comma) {
-    //                     token = self.next_token();
-    //                 }
-    //             }
-
-    //             let fact = Fact{ name: c, args };
-
-    //             let tokenf = self.next_token();
-    //             let tokens = self.next_token();
-
-    //             if let Ok(()) = self.is_implication(&tokenf, &tokens) {
-    //                 let mut body = Vec::<Box<dyn Clause>>::new();
-    //                 let mut clause = self.parse_clause()?;
-    //                 body.push(clause);
-    //                 let mut token = self.next_token();
-    //                 while let Err(_) = self.is_symbol(&token, SpecialSymbol::Dot) {
-    //                     self.advance_pos(-1);
-    //                     clause = self.parse_clause()?;
-    //                     body.push(clause);
-    //                     token = self.next_token();
-    //                     if let Ok(()) = self.is_symbol(&token, SpecialSymbol::Comma) {
-    //                         token = self.next_token();
-    //                     }
-    //                 }
-    //                 return Ok(Box::new(Rule{head: fact, body}));
-    //             }
-    //             else {
-    //                 self.advance_pos(-1);
-    //                 match self.is_symbol(&tokenf, SpecialSymbol::Dot) {
-    //                     Ok(_) => return Ok(Box::new(fact)),
-    //                     Err(_) => match self.is_symbol(&tokenf, SpecialSymbol::RBrace) {
-    //                         Ok(_) => return Ok(Box::new(fact)),
-    //                         Err(e) => return Err(e)
-    //                     }
-    //                 };
-    //             }
-    //         }
-    //         else {
-    //             self.advance_pos(-1);
-    //             return Ok(Box::new(Constant(c)));
-    //         }
-    //     }
-    //     Err(constant_result.unwrap_err())
-    // }
+    fn parse_arg(&mut self) -> Result<Box<dyn Clause>, ParserError> {
+        let var = self.parse_variable();
+        if let Ok(boxed_var) = var {
+            return Ok(boxed_var);
+        }
+        let constant = self.get_constant()?;
+        if let Ok(functor) = self.parse_functor(constant.clone()) {
+            return Ok(functor);
+        }
+        Ok(Box::new(Constant(constant)))
+    }
 
     fn parse_variable(&mut self) -> Result<Box<dyn Clause>, ParserError> {
         let token = self.next_token();
@@ -163,16 +152,6 @@ impl Parser {
         }
         self.advance_pos(-1);
         Err(r.unwrap_err())
-    }
-
-    fn is_implication(
-        &self,
-        tokenf: &Option<Token>,
-        tokens: &Option<Token>,
-    ) -> Result<(), ParserError> {
-        self.is_symbol(tokenf, SpecialSymbol::Dots)?;
-        self.is_symbol(tokens, SpecialSymbol::Minus)?;
-        Ok(())
     }
 
     fn get_constant(&mut self) -> Result<String, ParserError> {
@@ -196,24 +175,25 @@ impl Parser {
     }
 
     fn is_symbol(
-        &self,
-        token: &Option<Token>,
+        &mut self,
         special_symbol: SpecialSymbol,
     ) -> Result<(), ParserError> {
+        let token = self.next_token();
         match token {
             None => Err(ParserError::BaseError {
                 msg: String::from("No token"),
             }),
             Some(token) => {
                 if let Token::SpecialSymbol(s) = token {
-                    if *s == special_symbol {
+                    if s == special_symbol {
                         return Ok(());
                     }
                 }
+                self.advance_pos(-1);
                 return Err(ParserError::expected_error(
                     self.pos,
                     &Token::SpecialSymbol(special_symbol),
-                    token,
+                    &token,
                 ));
             }
         }
@@ -226,7 +206,7 @@ impl Parser {
             }),
             Some(token) => match token.clone() {
                 Token::Variable(s) => Ok(s),
-                t => Err(ParserError::expected_error(
+                _ => Err(ParserError::expected_error(
                     self.pos,
                     &Token::Variable(String::from("Some")),
                     token,
@@ -257,3 +237,31 @@ impl Clause for Constant {}
 impl Clause for Fact {}
 
 impl Clause for Rule {}
+
+impl Debug for Variable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        f.write_fmt(format_args!("Variable({})", &self.0));
+        Ok(())
+    }
+}
+
+impl Debug for Constant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        f.write_fmt(format_args!("Constant({})", &self.0));
+        Ok(())
+    }
+}
+
+impl Debug for Fact {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        f.write_fmt(format_args!("Fact({}, {})", &self.name, &self.args.len()));
+        Ok(())
+    }
+}
+
+impl Debug for Rule {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        f.write_fmt(format_args!("Rule({:?}, {})", &self.head, &self.body.len()));
+        Ok(())
+    }
+}
