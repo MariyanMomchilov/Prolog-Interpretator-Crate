@@ -4,24 +4,20 @@ mod tests;
 use std::{fmt::{Formatter, Debug, Error}};
 
 use super::tokenizer::*;
+use super::interpretator::*;
 
-pub trait Clause: Debug {
-    fn evaluate(&self) {}
-    fn unify(&self) {}
-}
+pub struct Variable(pub String);
 
-pub struct Variable(String);
-
-pub struct Constant(String);
+pub struct Constant(pub String);
 
 pub struct Fact {
-    name: String,
-    args: Vec<Box<dyn Clause>>,
+    pub name: String,
+    pub args: Vec<Box<dyn Clause>>,
 }
 
 pub struct Rule {
-    head: Box<dyn Clause>,
-    body: Vec<Box<dyn Clause>>,
+    pub head: Box<dyn Clause>,
+    pub body: Vec<Box<dyn Clause>>,
 }
 
 pub struct Parser {
@@ -230,14 +226,6 @@ impl Parser {
     }
 }
 
-impl Clause for Variable {}
-
-impl Clause for Constant {}
-
-impl Clause for Fact {}
-
-impl Clause for Rule {}
-
 impl Debug for Variable {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         f.write_fmt(format_args!("Variable({})", &self.0));
@@ -254,14 +242,14 @@ impl Debug for Constant {
 
 impl Debug for Fact {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        f.write_fmt(format_args!("Fact({}, {})", &self.name, &self.args.len()));
+        f.write_fmt(format_args!("Fact({}, {:?})", &self.name, &self.args));
         Ok(())
     }
 }
 
 impl Debug for Rule {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        f.write_fmt(format_args!("Rule({:?}, {})", &self.head, &self.body.len()));
+        f.write_fmt(format_args!("Rule({:?}, {:?})", &self.head, &self.body));
         Ok(())
     }
 }

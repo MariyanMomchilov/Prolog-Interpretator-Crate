@@ -2,3 +2,5 @@
 mod tokenizer;
 #[allow(dead_code, unused_must_use)]
 mod parser;
+#[allow(dead_code, unused_must_use)]
+mod interpretator;
